@@ -17,7 +17,16 @@ import os
 if not os.path.exists("./data"):
     os.makedirs("./data")
 
-!kaggle datasets download -d ealaxi/paysim1 -p ./data --unzip
+# Download dataset via kagglehub
+path = kagglehub.dataset_download("ealaxi/paysim1")
+print("Path to dataset files:", path)
+
+# Copy downloaded files into ./data
+for file in os.listdir(path):
+    full_src = os.path.join(path, file)
+    full_dst = os.path.join("./data", file)
+    if not os.path.exists(full_dst):
+        shutil.copy(full_src, full_dst)
 
 # Load dataset
 df = pd.read_csv("./data/PS_20174392719_1491204439457_log.csv")
