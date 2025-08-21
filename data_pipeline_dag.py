@@ -48,3 +48,34 @@ with DAG("data_ingestion_preprocessing_pipeline",
     )
 
     task
+
+
+
+
+
+1. Customer Information (KYC-related)
+	•	Customer ID / Account number
+	•	Customer type (individual, corporate, NGO, PEP – Politically Exposed Person)
+	•	Risk rating (low, medium, high)
+	•	Nationality / Country of residence (high-risk jurisdiction)
+	•	Occupation / Business type
+2. Transaction Information
+	•	Transaction amount
+	•	Transaction type (cash deposit, wire transfer, remittance, crypto, trade finance, etc.)
+	•	Transaction frequency (number of transactions per day/week/month)
+	•	Transaction channel (branch, online, ATM, mobile, SWIFT, etc.)
+	•	Counterparty details (beneficiary/sender name, country, bank, account)
+	•	Payment method (cash, cheque, digital, prepaid card, etc.)
+3. Geographical Attributes
+	•	Originating country
+	•	Destination country
+	•	High-risk or sanctioned country (FATF, OFAC, EU blacklist, etc.)
+4. Behavioral Attributes
+	•	Deviation from customer profile (e.g., sudden high-value transfers)
+	•	Unusual timing (odd hours, end of reporting cycles)
+	•	Structuring/smurfing (many small transactions under reporting threshold)
+	•	Rapid movement of funds (in-and-out within short time = layering)
+5. Regulatory & Watchlist Attributes
+	•	Sanctions list hits (OFAC, UN, EU, local regulator)
+	•	PEP list match
+	•	Negative media flags
