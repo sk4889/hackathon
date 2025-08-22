@@ -1,180 +1,251 @@
 import streamlit as st
 import pandas as pd
-from utils.preprocessing import preprocess_df
-from utils.model import train_model, evaluate_model, save_model_artifacts
-from utils.explainer import explain_model
-from utils.predict_realtime import predict_realtime
-from faker import Faker
 import numpy as np
-from datetime import datetime, timedelta
+from faker import Faker
+from utils.preprocessing import preprocess_df
+from utils.model_ml import train_ml_model, evaluate_ml_model
+from utils.explainer_ml import explain_ml_model
+from utils.predict_realtime_ml import predict_realtime_ml
+from utils.rule_based_analytics import customer_centric_view, transactional_view
+from math import radians, sin, cos, sqrt, atan2
+import os
+import joblib
 
-st.set_page_config(page_title="Transaction Anomaly Detector", layout="wide")
-st.title("Real-Time Financial Transaction Anomaly Detection")
-st.success("Steps: Generate/Load Data > Preview Data > Preprocess Data (for ML) > Train Model (for ML) > Evaluate Model (for ML) > Explain Model > Detect Real-Time")
+st.set_page_config(page_title="Payment Anomaly Detection Demo", layout="wide")
+st.title("Payment Anomaly Detection Demo")
 
-# Initialize Faker for synthetic data
+# Initialize Faker
 Faker.seed(42)
 fake = Faker()
 
-# Synthetic data generation
+# Country coordinates (lat, long)
+country_coords = {
+    'US': (37.09024, -95.712891),
+    'IN': (20.593684, 78.96288),
+    'UK': (55.378051, -3.435973),
+    'CA': (56.130366, -106.346771),
+    'RU': (61.52401, 105.318756),
+    'CN': (35.86166, 104.195397),
+    'NG': (9.081999, 8.675277)
+}
+
+# Predefined lists for restricted fields
+device_types = ['desktop', 'laptop', 'tablet', 'phone']
+company_names = [
+    'Acme Corp', 'Globex Inc', 'Soylent Solutions', 'Initech', 'Umbrella Corp',
+    'Cyberdyne Systems', 'Wayne Enterprises', 'Stark Industries', 'LexCorp', 'Omni Consumer Products'
+]
+occupations = [
+    'Software Engineer', 'Accountant', 'Marketing Manager', 'Sales Representative',
+    'Teacher', 'Doctor', 'Consultant', 'Analyst'
+]
+
+def haversine(coord1, coord2):
+    R = 6371.0  # Earth radius in km
+    lat1, lon1 = radians(coord1[0]), radians(coord1[1])
+    lat2, lon2 = radians(coord2[0]), radians(coord2[1])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    return R * c
+
+# Generate custom IP address in 192.10.x.y format
+def generate_custom_ip():
+    return f"192.10.{np.random.randint(0, 256)}.{np.random.randint(0, 256)}"
+
+# Common data generation with timestamps and impossible travel simulation
+@st.cache(suppress_st_warning=True, allow_output_mutation=True)
 def generate_synthetic_data(num_records=1000):
     np.random.seed(42)
-    data = {
-        'customer_id': [fake.uuid4() for _ in range(num_records)],
-        'customer_type': np.random.choice(['individual', 'corporate', 'NGO', 'PEP'], num_records, p=[0.6, 0.2, 0.1, 0.1]),
-        'risk_rating': np.random.choice(['low', 'medium', 'high'], num_records, p=[0.7, 0.2, 0.1]),
-        'nationality': np.random.choice(['US', 'IN', 'UK', 'CA', 'RU'], num_records, p=[0.3, 0.3, 0.2, 0.1, 0.1]),
-        'occupation': [fake.job() for _ in range(num_records)],
-        'transaction_amount': np.random.lognormal(mean=5, sigma=1, size=num_records).round(2),
-        'transaction_type': np.random.choice(['cash_deposit', 'wire_transfer', 'remittance', 'crypto', 'trade_finance'], num_records),
-        'transaction_frequency': np.random.randint(1, 10, num_records),
-        'transaction_channel': np.random.choice(['branch', 'online', 'ATM', 'mobile', 'SWIFT'], num_records),
-        'counterparty_name': [fake.company() for _ in range(num_records)],
-        'counterparty_country': np.random.choice(['US', 'IN', 'UK', 'CN', 'NG'], num_records),
-        'payment_method': np.random.choice(['cash', 'cheque', 'digital', 'prepaid_card'], num_records),
-        'originating_country': np.random.choice(['US', 'IN', 'UK', 'CA', 'RU'], num_records),
-        'destination_country': np.random.choice(['US', 'IN', 'UK', 'CN', 'NG'], num_records),
-        'sanctioned_country': np.random.choice([0, 1], num_records, p=[0.95, 0.05]),
-        'deviation_from_profile': np.random.choice([0, 1], num_records, p=[0.9, 0.1]),
-        'unusual_timing': np.random.choice([0, 1], num_records, p=[0.85, 0.15]),
-        'structuring': np.random.choice([0, 1], num_records, p=[0.95, 0.05]),
-        'rapid_movement': np.random.choice([0, 1], num_records, p=[0.9, 0.1]),
-        'sanctions_list_hit': np.random.choice([0, 1], num_records, p=[0.98, 0.02]),
-        'pep_match': np.random.choice([0, 1], num_records, p=[0.95, 0.05]),
-        'negative_media': np.random.choice([0, 1], num_records, p=[0.97, 0.03]),
-        'ip_address': [fake.ipv4() for _ in range(num_records)],
-        #'device_id': [fake.uuid4() for _ in range(num_records)], # commented to reduce too many combinations and replaced with device_type
-        'device_id':np.random.choice(['Desktop', 'Laptop', 'Tablet', 'Mobile'], num_records, p=[0.6, 0.2, 0.1, 0.1]),
-        'account_age_days': np.random.randint(1, 1000, num_records),
-        'last_update_days': np.random.randint(1, 365, num_records),
-        'failed_attempts': np.random.randint(0, 5, num_records),
-        'is_anomaly': np.zeros(num_records, dtype=int)
-    }
-    df = pd.DataFrame(data)
-    fraud_indices = np.random.choice(num_records, size=int(num_records * 0.05), replace=False)
-    df.loc[fraud_indices, 'is_anomaly'] = 1
-    df.loc[fraud_indices, 'transaction_amount'] = np.random.uniform(1000, 5000, len(fraud_indices))
-    df.loc[fraud_indices, 'sanctioned_country'] = 1
-    df.loc[fraud_indices, 'deviation_from_profile'] = 1
-    return df
+    num_customers = max(1, num_records // 10)
 
-# Data source selection
-data_source = st.radio("Select Data Source", ["Upload CSV", "Generate Synthetic Data"])
-row_limit = st.number_input("Limit to N rows (0 = full dataset)", min_value=0, max_value=10000, value=1000, step=50)
-n_estimators = st.slider("Number of trees (for RandomForest)", min_value=50, max_value=300, value=100, step=10)
-model_type = st.selectbox("Model Type", ["RandomForest (Supervised)", "OneClassSVM (Semi-Supervised)", "IsolationForest (Unsupervised)"])
-use_rule_based = st.checkbox("Use Rule-Based Detection", value=True)
+    customer_profiles = pd.DataFrame({
+        'customer_id': [fake.uuid4() for _ in range(num_customers)],
+        'customer_type': np.random.choice(['individual', 'corporate', 'NGO', 'PEP'], num_customers, p=[0.6, 0.2, 0.1, 0.1]),
+        'risk_rating': np.random.choice(['low', 'medium', 'high'], num_customers, p=[0.7, 0.2, 0.1]),
+        'nationality': np.random.choice(['US', 'IN', 'UK', 'CA', 'RU'], num_customers, p=[0.3, 0.3, 0.2, 0.1, 0.1]),
+        'occupation': np.random.choice(occupations, num_customers),
+        'ip_address': [generate_custom_ip() for _ in range(num_customers)],
+        'location': np.random.choice(list(country_coords.keys()), num_customers),
+        'usual_transaction_time_hour': np.random.randint(0, 24, num_customers),
+        'usual_amount_mean': np.random.lognormal(mean=5, sigma=1, size=num_customers).round(2),
+        'usual_frequency_per_day': np.random.randint(1, 5, num_customers),
+        'device_type': np.random.choice(device_types, num_customers),
+        'account_age_days': np.random.randint(1, 1000, num_customers),
+        'last_update_days': np.random.randint(1, 365, num_customers)
+    })
 
-# Initialize session variables
+    transactions = []
+    customer_tx = customer_profiles.groupby('customer_id').groups
+    for customer_id in customer_tx:
+        customer = customer_profiles.loc[customer_tx[customer_id][0]]
+        num_tx = np.random.randint(1, num_records // num_customers + 1)
+        timestamps = pd.date_range(start='2025-01-01', periods=num_tx, freq='H')  # Hourly for demo
+        prev_loc = customer['location']
+        for i in range(num_tx):
+            is_fraud = np.random.choice([0, 1], p=[0.95, 0.05])
+            amount = np.random.normal(customer['usual_amount_mean'], 100) if not is_fraud else np.random.uniform(1000, 5000)
+            loc = customer['location'] if not is_fraud else np.random.choice(list(country_coords.keys()))
+            impossible = 0
+            if i > 0:
+                time_diff = (timestamps[i] - timestamps[i-1]).total_seconds() / 3600
+                dist = haversine(country_coords[prev_loc], country_coords[loc])
+                if dist / time_diff > 1000:  # Impossible speed
+                    impossible = 1
+            prev_loc = loc
+            transaction = {
+                'customer_id': customer_id,
+                'timestamp': timestamps[i],
+                'transaction_amount': round(amount, 2),
+                'transaction_type': np.random.choice(['cash_deposit', 'wire_transfer', 'remittance', 'crypto', 'trade_finance']),
+                'transaction_frequency': customer['usual_frequency_per_day'],
+                'transaction_channel': np.random.choice(['branch', 'online', 'ATM', 'mobile', 'SWIFT']),
+                'counterparty_name': np.random.choice(company_names),
+                'counterparty_country': np.random.choice(list(country_coords.keys())),
+                'payment_method': np.random.choice(['cash', 'cheque', 'digital', 'prepaid_card']),
+                'originating_country': loc,
+                'destination_country': np.random.choice(list(country_coords.keys())),
+                'sanctioned_country': 1 if is_fraud else np.random.choice([0, 1], p=[0.95, 0.05]),
+                'deviation_from_profile': 1 if is_fraud else 0,
+                'unusual_timing': 1 if is_fraud and np.random.rand() > 0.5 else 0,
+                'structuring': np.random.choice([0, 1], p=[0.95, 0.05]),
+                'rapid_movement': np.random.choice([0, 1], p=[0.9, 0.1]),
+                'sanctions_list_hit': np.random.choice([0, 1], p=[0.98, 0.02]),
+                'pep_match': np.random.choice([0, 1], p=[0.95, 0.05]),
+                'negative_media': np.random.choice([0, 1], p=[0.97, 0.03]),
+                'ip_address': customer['ip_address'] if not is_fraud else generate_custom_ip(),
+                'device_type': customer['device_type'] if not is_fraud else np.random.choice(device_types),
+                'account_age_days': customer['account_age_days'],
+                'last_update_days': customer['last_update_days'],
+                'failed_attempts': np.random.randint(0, 5),
+                'impossible_travel': impossible,
+                'is_anomaly': is_fraud
+            }
+            transactions.append(transaction)
+
+    transaction_df = pd.DataFrame(transactions)
+    return customer_profiles, transaction_df
+
+# Session state
+if 'customer_profiles' not in st.session_state:
+    st.session_state.customer_profiles = None
+if 'transaction_df' not in st.session_state:
+    st.session_state.transaction_df = None
 if 'processed_df' not in st.session_state:
     st.session_state.processed_df = None
-if 'df' not in st.session_state:
-    st.session_state.df = None
 if 'model' not in st.session_state:
     st.session_state.model = None
 if 'X_test' not in st.session_state:
     st.session_state.X_test = None
 if 'y_test' not in st.session_state:
     st.session_state.y_test = None
+if 'model_choice' not in st.session_state:
+    st.session_state.model_choice = None
 
-# Load or generate data
-if data_source == "Upload CSV":
-    uploaded_file = st.file_uploader("Upload a transaction CSV file", type=["csv"])
-    if uploaded_file is not None and st.button("Preview of uploaded data"):
-        df = pd.read_csv(uploaded_file)
-        if row_limit > 0:
-            df = df.head(row_limit)
-        st.session_state.df = df
-        st.session_state.processed_df = None
-        st.session_state.X_test = None
-        st.session_state.y_test = None
-        st.subheader("Preview of uploaded data")
-        st.info(f"Dataset before preprocessing contains total {df.shape[0]} rows and {df.shape[1]} columns.")
-        st.dataframe(df.head())
-else:
-    if st.button("Generate Synthetic Data"):
-        df = generate_synthetic_data(num_records=row_limit if row_limit > 0 else 1000)
-        st.session_state.df = df
-        st.session_state.processed_df = None
-        st.session_state.X_test = None
-        st.session_state.y_test = None
-        st.subheader("Preview of synthetic data")
-        st.info(f"Synthetic dataset contains total {df.shape[0]} rows and {df.shape[1]} columns.")
-        st.dataframe(df.head())
+# UI layout
+left_col, right_col = st.columns([1, 4])
 
-# Preprocessing (for ML)
-if st.button("Run Preprocessing"):
-    if st.session_state.df is not None:
-        df = st.session_state.df
-        processed_df = preprocess_df(df, skip_smote=use_rule_based)  # Skip SMOTE for rule-based
-        st.session_state.processed_df = processed_df
-        st.session_state.feature_columns = list(processed_df.columns)
-        st.session_state.X_test = None
-        st.session_state.y_test = None
-        st.subheader("Processed Data Preview")
-        st.info(f"Dataset after preprocessing contains total {processed_df.shape[0]} rows and {processed_df.shape[1]} columns.")
-        st.dataframe(processed_df.head())
-    else:
-        st.error("Please load or generate data first")
+with left_col:
+    st.subheader("Options")
+    flow_choice = st.radio("Choose Flow", ["ML Based", "Rule Based"])
+    row_limit = st.number_input("Number of Records", min_value=100, max_value=10000, value=1000, step=100)
+    if st.button("Generate Data"):
+        try:
+            customer_profiles, transaction_df = generate_synthetic_data(row_limit)
+            st.session_state.customer_profiles = customer_profiles
+            st.session_state.transaction_df = transaction_df
+            st.session_state.processed_df = None
+            st.session_state.model = None
+            st.session_state.X_test = None
+            st.session_state.y_test = None
+            st.session_state.model_choice = None
+            st.success("Data Generated")
+        except Exception as e:
+            st.error(f"Error generating data: {str(e)}")
 
-# Train model
-if st.button("Train"):
-    try:
-        if st.session_state.processed_df is not None:
-            processed_df = st.session_state.processed_df
-            model, X_test, y_test = train_model(processed_df, n_estimators, model_type)
-            st.session_state.model = model
-            st.session_state.X_test = X_test
-            st.session_state.y_test = y_test
+    if st.button("Save Profiles"):
+        if st.session_state.customer_profiles is not None:
+            try:
+                st.session_state.customer_profiles.to_csv('customer_profiles.csv', index=False)
+                with open('customer_profiles.csv', 'rb') as f:
+                    st.download_button("Download Profiles CSV", f, file_name='customer_profiles.csv')
+            except Exception as e:
+                st.error(f"Error saving profiles: {str(e)}")
         else:
-            st.error("Please preprocess data first")
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+            st.error("Generate Data First")
 
-# Evaluate model
-if st.button("Evaluate"):
-    try:
-        if st.session_state.model is not None and st.session_state.X_test is not None and st.session_state.y_test is not None:
-            model = st.session_state.model
-            X_test = st.session_state.X_test
-            y_test = st.session_state.y_test
-            df = st.session_state.df
-            preds_df, preds = evaluate_model(model, X_test, y_test, model_type, df, use_rule_based)
-            if preds_df is not None:
-                st.session_state.preds_df = preds_df
-                st.subheader("Predictions and Risk Score")
-                st.dataframe(preds_df.head(10))
+    if flow_choice == "ML Based":
+        model_choice = st.selectbox("Model", ["Logistic Regression", "Random Forest", "Isolation Forest", "OneClassSVM", "XGBoost"])
+        # Show estimators slider only for tree-based models
+        if model_choice in ["Random Forest", "Isolation Forest", "XGBoost"]:
+            n_estimators = st.slider("Estimators (for tree models)", 50, 300, 100, 10)
+        else:
+            n_estimators = None
+        if st.button("Preprocess"):
+            if st.session_state.transaction_df is not None:
+                try:
+                    processed_df = preprocess_df(st.session_state.transaction_df)
+                    st.session_state.processed_df = processed_df
+                    st.success("Preprocessed")
+                except Exception as e:
+                    st.error(f"Error preprocessing: {str(e)}")
             else:
-                st.error("Evaluation failed due to sample mismatch")
-        else:
-            st.error("Please train the model first")
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+                st.error("Generate Data First")
+        if st.button("Train"):
+            if st.session_state.processed_df is not None:
+                try:
+                    model, X_test, y_test = train_ml_model(st.session_state.processed_df, model_choice, n_estimators)
+                    st.session_state.model = model
+                    st.session_state.X_test = X_test
+                    st.session_state.y_test = y_test
+                    st.session_state.model_choice = model_choice
+                    st.success("Trained")
+                except Exception as e:
+                    st.error(f"Error training: {str(e)}")
+            else:
+                st.error("Preprocess First")
+        if st.button("Evaluate"):
+            if st.session_state.model is not None:
+                try:
+                    evaluate_ml_model(st.session_state.model, st.session_state.X_test, st.session_state.y_test, right_col, model_choice)
+                except Exception as e:
+                    st.error(f"Error evaluating: {str(e)}")
+            else:
+                st.error("Train Model First")
+        if st.button("Insights"):
+            if st.session_state.model is not None:
+                try:
+                    explain_ml_model(st.session_state.model, st.session_state.X_test, right_col, model_choice)
+                except Exception as e:
+                    st.error(f"Error generating insights: {str(e)}")
+            else:
+                st.error("Train Model First")
+        show_realtime = st.checkbox("Real-Time Detection")
 
-# Save model
-if st.button("Save Trained Model for API use"):
-    try:
-        msg = save_model_artifacts()
-        st.success(msg)
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
+    elif flow_choice == "Rule Based":
+        tab_choice = st.radio("View", ["Customer-Centric Fraudulent Transactions", "Transactional View"])
+        if st.button("Analyze"):
+            if st.session_state.customer_profiles is not None and st.session_state.transaction_df is not None:
+                try:
+                    if tab_choice == "Customer-Centric Fraudulent Transactions":
+                        customer_centric_view(st.session_state.customer_profiles, st.session_state.transaction_df, right_col)
+                    else:
+                        transactional_view(st.session_state.customer_profiles, st.session_state.transaction_df, right_col)
+                except Exception as e:
+                    st.error(f"Error analyzing: {str(e)}")
+            else:
+                st.error("Generate Data First")
 
-# Explain model
-if st.button("Detected Patterns"):
-    try:
-        if st.session_state.model is not None and st.session_state.X_test is not None:
-            st.success("Fraud patterns by feature importances or anomaly scores")
-            explain_model(st.session_state.model, st.session_state.X_test, st.session_state.df, model_type, use_rule_based)
-        else:
-            st.error("Please train the model first")
-    except Exception as e:
-        st.error(f"Error: {str(e)}")
-
-# Real-time prediction
-show_form = st.checkbox("Show user form for real-time Fraud detection")
-if show_form:
-    st.subheader("Real-time Fraud Detection")
-    try:
-        predict_realtime(use_rule_based)
-    except Exception as e:
-        st.warning("Please complete: 1. Upload/Generate data 2. Preprocess (for ML) 3. Train (for ML) 4. Evaluate (for ML)")
+with right_col:
+    st.subheader("Results and Insights")
+    if 'transaction_df' in st.session_state and st.session_state.transaction_df is not None:
+        try:
+            st.dataframe(st.session_state.transaction_df.head(10))
+        except Exception as e:
+            st.error(f"Error displaying transaction data: {str(e)}")
+    if flow_choice == "ML Based" and show_realtime and st.session_state.model is not None:
+        try:
+            predict_realtime_ml()
+        except Exception as e:
+            st.error(f"Error in real-time detection: {str(e)}")
