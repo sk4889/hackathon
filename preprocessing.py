@@ -1,13 +1,10 @@
 import pandas as pd
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from imblearn.over_sampling import SMOTE
-import streamlit as st
 import os
 import joblib
 
 def preprocess_data(data, model_name):
-    """Preprocess transaction data for training."""
-    # Validate input data
+    """Preprocess transaction data for training or prediction."""
     required_cols = [
         'customer_id', 'timestamp', 'transaction_amount', 'transaction_type',
         'transaction_frequency', 'transaction_channel', 'counterparty_name',
@@ -18,15 +15,15 @@ def preprocess_data(data, model_name):
         'account_age_days', 'last_update_days', 'failed_attempts', 'impossible_travel',
         'is_anomaly'
     ]
-    if not all(col in data.columns for col in required_cols):
-        st.error(f"Missing columns: {[col for col in required_cols if col not in data.columns]}")
+    missing_cols = [col for col in required_cols if col not in data.columns]
+    if missing_cols:
+        print(f"Error: Missing columns: {missing_cols}")
         return None
 
     if data.empty:
-        st.error("No data provided")
+        print("Error: No data provided")
         return None
 
-    # Define feature columns
     categorical_cols = ['transaction_type', 'transaction_channel', 'payment_method',
                        'originating_country', 'destination_country', 'counterparty_country']
     numerical_cols = ['transaction_amount', 'transaction_frequency', 'sanctioned_country',
@@ -37,36 +34,26 @@ def preprocess_data(data, model_name):
 
     try:
         # Encode categorical columns
+        encoders = {}
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        model_dir = os.path.join(project_root, 'models', model_name.lower().replace(' ', '_'))
+        os.makedirs(model_dir, exist_ok=True)
         for col in categorical_cols:
             le = LabelEncoder()
             df_processed[col] = le.fit_transform(df_processed[col].astype(str))
-            st.session_state.encoders[col] = le
-            model_dir = f"models/{model_name.lower().replace(' ', '_')}"
-            os.makedirs(model_dir, exist_ok=True)
-            joblib.dump(le, f"{model_dir}/encoder_{col}.pkl")
+            encoders[col] = le
+            encoder_path = os.path.join(model_dir, f'encoder_{col}.pkl')
+            joblib.dump(le, encoder_path)
+            print(f"Saved encoder to {encoder_path}")
 
         # Scale numerical columns
         scaler = StandardScaler()
         df_processed[numerical_cols] = scaler.fit_transform(df_processed[numerical_cols])
-        st.session_state.scaler = scaler
-        model_dir = f"models/{model_name.lower().replace(' ', '_')}"
-        os.makedirs(model_dir, exist_ok=True)
-        joblib.dump(scaler, f"{model_dir}/scaler.pkl")
+        scaler_path = os.path.join(model_dir, 'scaler.pkl')
+        joblib.dump(scaler, scaler_path)
+        print(f"Saved scaler to {scaler_path}")
 
-        # Apply SMOTE for class imbalance
-        feature_cols = categorical_cols + numerical_cols
-        X = df_processed[feature_cols]
-        y = df_processed['is_anomaly']
-        if len(X) >= 5 and y.nunique() >= 2:
-            smote = SMOTE(random_state=42)
-            X_resampled, y_resampled = smote.fit_resample(X, y)
-            df_resampled = pd.DataFrame(X_resampled, columns=feature_cols)
-            df_resampled['is_anomaly'] = y_resampled
-            return df_resampled
-        else:
-            st.warning("Not enough data or classes for SMOTE")
-            return df_processed
-
+        return df_processed
     except Exception as e:
-        st.error(f"Error preprocessing data: {e}")
+        print(f"Error preprocessing data: {e}")
         return None

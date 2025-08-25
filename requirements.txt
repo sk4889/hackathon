@@ -1,12 +1,8 @@
-streamlit==1.48.1
+fastapi==0.103.2
+uvicorn==0.23.2
 pandas==2.3.0
 numpy>=1.19.0
 scikit-learn==1.5.1
 imblearn==0.12.3
-seaborn
-matplotlib
 xgboost==2.0.3
-folium
-streamlit-folium
-shap
-faker
+joblib==1.4.2
