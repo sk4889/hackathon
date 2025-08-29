@@ -1,0 +1,250 @@
+# Payment Anomaly Detection Project Guide for Python Beginners
+
+## Abstract
+This guide introduces Python beginners to a Payment Anomaly Detection web application built with Streamlit. The project detects suspicious financial transactions using machine learning (ML) or rule-based methods. It covers data generation, preprocessing, model training, evaluation, real-time predictions, and visualizations. The guide explains each file, provides code snippets, and includes a workflow diagram to illustrate the project's flow.
+
+## 1. Project Overview
+This web application detects anomalous financial transactions, such as fraud, using two approaches:
+- **ML-Based**: Uses machine learning models (Random Forest, Logistic Regression, XGBoost) to predict anomalies.
+- **Rule-Based**: Analyzes data with predefined rules and visualizes results with charts and maps.
+
+**Key Features**:
+- Generate synthetic data for customers and transactions.
+- Preprocess data for ML.
+- Train and evaluate ML models.
+- Show insights (charts, feature importance).
+- Real-time detection form.
+- Data dictionary for understanding fields.
+- Visualizations like maps and histograms.
+
+The app uses libraries like Pandas, NumPy, Scikit-learn, XGBoost, SHAP, Matplotlib, Seaborn, and Folium.
+
+## 2. Prerequisites
+- **Python 3.8+**: Install from python.org.
+- **Libraries**: Install using:
+  ```
+  pip install streamlit pandas numpy faker scikit-learn imbalanced-learn joblib xgboost shap matplotlib seaborn folium streamlit-folium
+  ```
+- **Project Structure**: Create a folder with subfolders: `data/raw`, `data/retrain`, `models`. Save all `.py` files in the main folder.
+
+## 3. File-by-File Explanation
+
+### 3.1 `data_generation.py`
+**Purpose**: Generates synthetic customer profiles and transaction data, saved as CSV/JSON.
+
+**Key Concepts**:
+- Uses `Faker` for realistic data (e.g., names, IPs).
+- Calculates "impossible travel" based on timestamps and locations.
+- Saves data with Pandas' `to_csv` and JSON.
+
+**Main Functions**:
+- `generate_data(num_records=1000)`: Creates customer and transaction DataFrames.
+- `save_data(...)`: Saves to CSV.
+- `save_retrain_data(...)`: Saves JSON for retraining.
+
+**Code Example**:
+```python
+import pandas as pd
+import numpy as np
+from faker import Faker
+fake = Faker()
+def generate_data(num_records=1000):
+    customers = pd.DataFrame({
+        'customer_id': [fake.uuid4() for _ in range(100)],
+        'nationality': np.random.choice(['US', 'IN', 'UK'], 100)
+    })
+    return customers, transactions
+```
+
+**Tip**: DataFrames are like Excel tables. `np.random.choice` picks random items.
+
+### 3.2 `preprocessing.py`
+**Purpose**: Prepares transaction data for ML by encoding categories, scaling numbers, and balancing classes.
+
+**Key Concepts**:
+- `LabelEncoder`: Converts strings (e.g., 'US') to numbers.
+- `StandardScaler`: Normalizes numerical data.
+- `SMOTE`: Balances classes (e.g., more anomalies if needed).
+- Saves encoders/scalers for reuse.
+
+**Main Function**: `preprocess_data(data, model_name)`
+
+**Code Example**:
+```python
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from imblearn.over_sampling import SMOTE
+def preprocess_data(data, model_name):
+    le = LabelEncoder()
+    data['transaction_type'] = le.fit_transform(data['transaction_type'])
+    scaler = StandardScaler()
+    data[numerical_cols] = scaler.fit_transform(data[numerical_cols])
+    smote = SMOTE()
+    X_resampled, y_resampled = smote.fit_resample(X, y)
+    return resampled_data
+```
+
+**Tip**: Preprocessing ensures data is ML-ready.
+
+### 3.3 `model_training.py`
+**Purpose**: Trains ML models, saves them, and evaluates performance.
+
+**Key Concepts**:
+- Splits data into training/testing sets.
+- Trains models (Random Forest, Logistic Regression, XGBoost).
+- Evaluates with metrics (precision, recall) and confusion matrix.
+
+**Main Functions**:
+- `train_model(df, model_choice)`: Trains one or all models.
+- `evaluate_model(...)`: Displays metrics in Streamlit.
+
+**Code Example**:
+```python
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+def train_model(df, model_choice):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    model = RandomForestClassifier()
+    model.fit(X_train, y_train)
+    joblib.dump(model, 'model.pkl')
+    return model, X_test, y_test
+```
+
+**Tip**: `fit()` teaches the model patterns.
+
+### 3.4 `insights.py`
+**Purpose**: Shows feature importance and SHAP plots to explain predictions.
+
+**Key Concepts**: Uses SHAP to explain why predictions are made.
+
+**Main Function**: `show_insights(models, X_test, right_col, model_choice)`
+
+**Code Example**:
+```python
+import shap
+import matplotlib.pyplot as plt
+def show_insights(models, X_test, ...):
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+    shap.summary_plot(shap_values, X_test)
+    st.pyplot(plt)
+```
+
+### 3.5 `inference.py`
+**Purpose**: Handles real-time anomaly predictions via a form.
+
+**Key Concepts**: Takes user inputs, preprocesses, and predicts.
+
+**Main Function**: `predict_realtime(column)`
+
+**Code Example**:
+```python
+def predict_realtime(column):
+    with column.form("realtime_form"):
+        amount = st.number_input("Transaction Amount", 1000.0)
+        if st.form_submit_button("Predict"):
+            df = pd.DataFrame([inputs])
+            pred = model.predict(df)
+            column.write(f"Prediction: {'Anomaly' if pred == 1 else 'Normal'}")
+```
+
+### 3.6 `rule_based.py`
+**Purpose**: Analyzes data with rules, showing charts and maps.
+
+**Key Concepts**: Merges data, uses Seaborn and Folium for visuals.
+
+**Main Functions**:
+- `show_customer_centric(...)`: Customer-focused analysis.
+- `show_transactional(...)`: Transaction-focused visuals.
+
+### 3.7 `data_dictionary.py`
+**Purpose**: Displays a searchable table of data field descriptions.
+
+**Main Function**: `display_data_dictionary()`
+
+### 3.8 `app.py`
+**Purpose**: The main Streamlit app, tying all modules together.
+
+**Key Concepts**: Sidebar for settings, buttons for actions, columns for layout.
+
+**Code Example**:
+```python
+import streamlit as st
+from data_generation import generate_data
+st.title("Payment Anomaly Detection")
+flow_choice = st.sidebar.radio("Choose Analysis Type", ["ML Based", "Rule Based"])
+if st.button("Generate Data"):
+    profiles, transactions = generate_data(500)
+    st.session_state.transaction_df = transactions
+```
+
+## 4. How the Files Connect
+`app.py` orchestrates everything:
+- **Generate Data**: Calls `data_generation.py`.
+- **Preprocess**: Calls `preprocessing.py`.
+- **Train/Evaluate**: Calls `model_training.py`.
+- **Insights**: Calls `insights.py`.
+- **Real-Time**: Calls `inference.py`.
+- **Rule-Based**: Calls `rule_based.py`.
+- **Dictionary**: Calls `data_dictionary.py`.
+
+Data flows: Generate → Preprocess → Train → Predict/Insights. Models/data are saved in `models/` and `data/`.
+
+## 5. Workflow Diagram
+```
++-------------------+     +-------------------+
+| User Opens App    |     | Sidebar: Choose   |
+| (app.py)          |<----+ Mode (ML/Rule)   |
++-------------------+     +-------------------+
+           |
+           v
++-------------------+     +-------------------+
+| Generate Data     |     | Load Existing     |
+| (data_generation) |---->| Models/Data       |
++-------------------+     | (from files)      |
+           |              +-------------------+
+           v
++-------------------+
+| Preprocess Data   |
+| (preprocessing.py)|
++-------------------+
+           |
+           v (If ML Mode)
++-------------------+     +-------------------+
+| Train Model(s)    |     | Evaluate Model    |
+| (model_training)  |---->| (metrics, matrix) |
++-------------------+     +-------------------+
+           |                        |
+           v                        v
++-------------------+     +-------------------+
+| Show Insights     |     | Real-Time Predict |
+| (insights.py)     |     | (inference.py)    |
++-------------------+     +-------------------+
+           |
+           v (If Rule Mode)
++-------------------+
+| Analyze (Charts/  |
+| Maps: rule_based) |
++-------------------+
+           |
+           v (Always Available)
++-------------------+
+| Data Dictionary   |
+| (data_dictionary) |
++-------------------+
+```
+
+## 6. Running the Project
+1. Save all `.py` files in one folder.
+2. Open terminal in the folder.
+3. Run: `streamlit run app.py`.
+4. Browser opens the app.
+5. Follow sidebar: Choose mode, set records, click buttons (Generate → Preprocess → Train → Evaluate → Insights).
+
+## 7. Tips for Beginners
+- **Debugging**: Add `print("Here")` to trace code. Check `st.error()` messages.
+- **Common Issues**: Missing columns? Check data generation. Model errors? Ensure `models/` exists.
+- **Resources**:
+  - Streamlit: docs.streamlit.io
+  - Pandas: pandas.pydata.org/docs
+  - Scikit-learn: scikit-learn.org
+- **Experiment**: Modify `num_records` or add fields.
