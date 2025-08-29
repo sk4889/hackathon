@@ -5,7 +5,7 @@ import numpy as np
 def predict_realtime(column):
     """Handle real-time anomaly detection in Streamlit."""
     column.write(f"Debug: model_choice = {st.session_state.get('model_choice', 'None')}")
-    if 'model' not in st.session_state or st.session_state.model is None:
+    if 'models' not in st.session_state or not st.session_state.models:
         column.error("Please train a model first")
         return
     if 'encoders' not in st.session_state or 'scaler' not in st.session_state:
@@ -16,6 +16,15 @@ def predict_realtime(column):
         return
 
     column.subheader("Real-Time Anomaly Detection")
+    if st.session_state.model_choice == "All":
+        column.write(f"Using best model: {st.session_state.best_model.__class__.__name__}")
+        model = st.session_state.best_model
+    else:
+        model = st.session_state.models.get(st.session_state.model_choice)
+        if model is None:
+            column.error("Selected model not found in trained models")
+            return
+
     with column.form("realtime_form"):
         customer_id = st.text_input("Customer ID", value="123e4567-e89b-12d3-a456-426614174000")
         transaction_amount = st.number_input("Transaction Amount", min_value=0.0, value=1000.0)
@@ -94,7 +103,6 @@ def predict_realtime(column):
                 df[numerical_cols] = st.session_state.scaler.transform(df[numerical_cols])
 
                 # Predict
-                model = st.session_state.model
                 X = df[feature_cols]
                 pred = model.predict(X)[0]
                 column.write(f"Prediction: {'Anomaly' if pred == 1 else 'Normal'}")

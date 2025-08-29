@@ -1,12 +1,5 @@
 import streamlit as st
 import pandas as pd
-#from common.data_generation import generate_data, save_data
-#from streamlit_app.preprocessing import preprocess_data
-#from streamlit_app.model_training import train_model, evaluate_model
-#from streamlit_app.inference import predict_realtime
-#from streamlit_app.rule_based import show_customer_centric, show_transactional
-#from streamlit_app.insights import show_insights
-
 from data_generation import generate_data, save_data
 from preprocessing import preprocess_data
 from model_training import train_model, evaluate_model
@@ -25,6 +18,8 @@ if 'transaction_df' not in st.session_state:
     st.session_state.transaction_df = None
 if 'model' not in st.session_state:
     st.session_state.model = None
+if 'models' not in st.session_state:
+    st.session_state.models = {}  # Store multiple models for "All"
 if 'X_test' not in st.session_state:
     st.session_state.X_test = None
 if 'y_test' not in st.session_state:
@@ -35,22 +30,27 @@ if 'scaler' not in st.session_state:
     st.session_state.scaler = None
 if 'model_choice' not in st.session_state:
     st.session_state.model_choice = "XGBoost"  # Default to XGBoost
+if 'best_model' not in st.session_state:
+    st.session_state.best_model = None  # Store best model for "All"
 
 # Sidebar for user inputs
 st.sidebar.header("Settings")
 flow_choice = st.sidebar.radio("Choose Analysis Type", ["ML Based", "Rule Based"])
 num_records = st.sidebar.slider("Number of Transactions", 100, 1000, 500)
 if flow_choice == "ML Based":
-    model_choice = st.sidebar.selectbox("Select Model", ["Random Forest", "Logistic Regression", "XGBoost"], index=2, key="model_select")  # Default to XGBoost
+    model_choice = st.sidebar.selectbox("Select Model", ["Random Forest", "Logistic Regression", "XGBoost", "All"], index=3, key="model_select")  # Default to All
     if model_choice != st.session_state.model_choice:
         st.session_state.model_choice = model_choice
-        st.session_state.model = None  # Reset model if model_choice changes
+        st.session_state.model = None
+        st.session_state.models = {}
         st.session_state.X_test = None
         st.session_state.y_test = None
         st.session_state.encoders = {}
         st.session_state.scaler = None
+        st.session_state.best_model = None
 else:
-    st.session_state.model_choice = None  # Clear for Rule Based
+    st.session_state.model_choice = None
+    st.session_state.best_model = None
 
 # Create two columns: left (20%) for controls, right (80%) for results
 left_col, right_col = st.columns([0.2, 0.8])
@@ -81,29 +81,37 @@ with left_col:
         if st.button("Train Model"):
             if st.session_state.transaction_df is not None and st.session_state.model_choice:
                 try:
-                    model, X_test, y_test = train_model(st.session_state.transaction_df, st.session_state.model_choice)
-                    st.session_state.model = model
+                    if st.session_state.model_choice == "All":
+                        models, X_test, y_test, best_model = train_model(st.session_state.transaction_df, st.session_state.model_choice)
+                        st.session_state.models = models
+                        st.session_state.model = models.get("XGBoost")  # Default to XGBoost for single-model operations
+                        st.session_state.best_model = best_model
+                    else:
+                        model, X_test, y_test = train_model(st.session_state.transaction_df, st.session_state.model_choice)
+                        st.session_state.model = model
+                        st.session_state.models = {st.session_state.model_choice: model}
+                        st.session_state.best_model = model
                     st.session_state.X_test = X_test
                     st.session_state.y_test = y_test
-                    st.success(f"Trained {st.session_state.model_choice} model")
+                    st.success(f"Trained {st.session_state.model_choice} model(s)")
                 except Exception as e:
                     st.error(f"Error training model: {e}")
             else:
                 st.error("Preprocess data and select a model first")
 
         if st.button("Evaluate Model"):
-            if st.session_state.model is not None and st.session_state.model_choice:
+            if st.session_state.models and st.session_state.model_choice:
                 try:
-                    evaluate_model(st.session_state.model, st.session_state.X_test, st.session_state.y_test, right_col, st.session_state.model_choice)
+                    evaluate_model(st.session_state.models, st.session_state.X_test, st.session_state.y_test, right_col, st.session_state.model_choice)
                 except Exception as e:
                     st.error(f"Error evaluating model: {e}")
             else:
                 st.error("Train model first")
 
         if st.button("Show Insights"):
-            if st.session_state.model is not None and st.session_state.model_choice:
+            if st.session_state.models and st.session_state.model_choice:
                 try:
-                    show_insights(st.session_state.model, st.session_state.X_test, right_col, st.session_state.model_choice)
+                    show_insights(st.session_state.models, st.session_state.X_test, right_col, st.session_state.model_choice)
                 except Exception as e:
                     st.error(f"Error showing insights: {e}")
             else:
